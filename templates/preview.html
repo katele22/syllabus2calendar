@@ -1,25 +1,66 @@
 <!doctype html>
 <html>
+  <head>
+    <title>Preview Extracted Events</title>
+    <style>
+      table {
+        border-collapse: collapse;
+        width: 80%;
+        margin: 20px auto;
+      }
+      th, td {
+        border: 1px solid #333;
+        padding: 8px;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      h1 {
+        text-align: center;
+      }
+      .center {
+        text-align: center;
+      }
+      button {
+        display: block;
+        margin: 20px auto;
+        padding: 10px 20px;
+        font-size: 16px;
+      }
+    </style>
+  </head>
   <body>
-    <h1>Preview</h1>
-    {% if events %}
-      <form action="{{ url_for('sync') }}" method="post">
-        <ul>
-        {% for e in events %}
-          <li>
-            <strong>{{ e.title }}</strong> — {{ e.date }} {{ e.time or '' }} <br/>
-            {{ e.description }}
-          </li>
-        {% endfor %}
-        </ul>
+    <h1>Preview Extracted Events</h1>
 
-        <p>
-         <button type="submit">Sync to Google Calendar</button>
-         <a href="{{ url_for('authorize') }}">Connect Google Account (if not connected)</a>
-        </p>
+    {% if events %}
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Date</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <td>{{ event.title }}</td>
+            <td>{{ event.date }}</td>
+            <td>{{ event.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <form action="{{ url_for('sync') }}" method="post" class="center">
+        <button type="submit">Sync to Google Calendar</button>
       </form>
     {% else %}
-      <p>No events parsed yet. <a href="{{ url_for('index') }}">Upload</a></p>
+      <p class="center">No events found.</p>
     {% endif %}
+
+    <p class="center"><a href="{{ url_for('index') }}">Upload another file</a></p>
   </body>
 </html>
+v

@@ -4,36 +4,117 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from datetime import datetime
 import os
+import json
+from dotenv import load_dotenv
+from openai import OpenAI
+from docx import Document
+import re
+
+# Load environment variables
+load_dotenv()
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # only for development
 app = Flask(__name__)
-app.secret_key = "dev-secret"  # replace with a secure secret in production
+app.secret_key = "dev-secret"
 
 GOOGLE_CLIENT_SECRETS_FILE = "credentials.json"
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=openai_api_key)
+
 
 def credentials_from_session():
     if "credentials" not in session:
         return None
     return Credentials.from_authorized_user_info(session["credentials"], SCOPES)
 
+
 @app.route("/")
 def index():
+    return render_template("upload.html")
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    file = request.files.get("file")
+    if not file or not file.filename.endswith(".docx"):
+        flash("Please upload a Word (.docx) syllabus")
+        return redirect(url_for("index"))
+
+    # 1️⃣ Extract text from Word file
+    doc = Document(file)
+    text = "\n".join([p.text for p in doc.paragraphs if p.text.strip() != ""])
+    
+    print("DEBUG: Word text extracted:")
+    print(text[:500])  # first 500 characters
+
+    # 2️⃣ Prepare prompt for OpenAI
+    prompt = f"""
+Extract all important academic deadlines (assignments, midterms, exams, projects, quizzes) 
+from the syllabus below. Assume the year to be 2025. Return them as a JSON array of objects with fields:
+- title
+- date (YYYY-MM-DD)
+- description
+
+Syllabus:
+{text}
+"""
+
+    # 3️⃣ Call OpenAI GPT API
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are an assistant that extracts academic deadlines."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    events_text = response.choices[0].message.content
+    print("DEBUG: OpenAI raw output:")
+    print(events_text)
+
+    # 4️⃣ Extract JSON from OpenAI output
+    try:
+        json_match = re.search(r"\[.*\]", events_text, re.DOTALL)
+        if json_match:
+            events_text = json_match.group()
+            events = json.loads(events_text)
+        else:
+            print("DEBUG: No JSON array found in OpenAI output")
+            events = []
+    except Exception as e:
+        flash("Failed to parse AI response. Check syllabus format.")
+        print("Exception while parsing JSON:", e)
+        events = []
+
+    # 5️⃣ Store in session and show preview
+    session["parsed_events"] = events
+    return render_template("preview.html", events=events)
+
+
+@app.route("/sync", methods=["POST"])
+def sync():
     creds = credentials_from_session()
     if not creds:
         return redirect(url_for("authorize"))
 
     service = build("calendar", "v3", credentials=creds)
-    # list next 5 upcoming events
-    events_result = service.events().list(
-        calendarId="primary",
-        maxResults=5,
-        singleEvents=True,
-        orderBy="startTime",
-        timeMin=datetime.utcnow().isoformat() + 'Z'  # only events after now
-    ).execute()
-    events = events_result.get("items", [])
+    events = session.get("parsed_events", [])
 
-    return render_template("index.html", events=events)
+    for e in events:
+        event_body = {
+            "summary": e.get("title", ""),
+            "description": e.get("description", ""),
+            "start": {"date": e.get("date", "")},
+            "end": {"date": e.get("date", "")}
+        }
+        service.events().insert(calendarId="primary", body=event_body).execute()
+
+    flash("Events synced to Google Calendar!")
+    return redirect(url_for("index"))
+
 
 @app.route("/authorize")
 def authorize():
@@ -50,6 +131,7 @@ def authorize():
     session["state"] = state
     return redirect(authorization_url)
 
+
 @app.route("/oauth2callback")
 def oauth2callback():
     state = session.get("state")
@@ -61,7 +143,6 @@ def oauth2callback():
     )
     flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
-    # store credentials in session
     session["credentials"] = {
         "token": creds.token,
         "refresh_token": creds.refresh_token,
@@ -71,6 +152,7 @@ def oauth2callback():
         "scopes": creds.scopes
     }
     return redirect(url_for("index"))
+
 
 if __name__ == "__main__":
     app.run(debug=True)
