@@ -1,6 +1,17 @@
 <!doctype html>
 <html>
+
+
   <body>
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <ul style="color: green; text-align: center;">
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
     <h1>Upload Word Syllabus (.docx)</h1>
     <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
       <input type="file" name="file" accept=".docx" required>

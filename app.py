@@ -103,17 +103,50 @@ def sync():
     service = build("calendar", "v3", credentials=creds)
     events = session.get("parsed_events", [])
 
-    for e in events:
-        event_body = {
-            "summary": e.get("title", ""),
-            "description": e.get("description", ""),
-            "start": {"date": e.get("date", "")},
-            "end": {"date": e.get("date", "")}
-        }
-        service.events().insert(calendarId="primary", body=event_body).execute()
+    if not events:
+        flash("No events to sync!")
+        return redirect(url_for("index"))
 
-    flash("Events synced to Google Calendar!")
+    # List all calendars for debug
+    calendar_list = service.calendarList().list().execute()
+    print("Available calendars for this account:")
+    for cal in calendar_list['items']:
+        print(f"- {cal['summary']} (ID: {cal['id']})")
+
+    success_count = 0
+    failed_events = []
+
+    for e in events:
+        # Make sure date is valid
+        event_date = e.get("date", "").strip()
+        if not event_date:
+            print(f"Skipping event with missing date: {e}")
+            failed_events.append(e)
+            continue
+
+        event_body = {
+            "summary": e.get("title", "No Title"),
+            "description": e.get("description", ""),
+            "start": {"date": event_date},  # all-day event
+            "end": {"date": event_date}     # all-day event
+        }
+
+        print("Inserting event:")
+        print(event_body)
+
+        try:
+            service.events().insert(calendarId="primary", body=event_body).execute()
+            success_count += 1
+        except Exception as err:
+            print(f"Error inserting event {e}: {err}")
+            failed_events.append(e)
+
+    flash(f"Successfully synced {success_count} events to Google Calendar!")
+    if failed_events:
+        flash(f"{len(failed_events)} events failed to sync. Check console for details.")
+
     return redirect(url_for("index"))
+
 
 
 @app.route("/authorize")
